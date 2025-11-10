@@ -1,8 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Outputs
+*.joblib
+*_scored.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Legacy R files
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
-.DS_Store
 *.docx
 *.pptx
 receipts/

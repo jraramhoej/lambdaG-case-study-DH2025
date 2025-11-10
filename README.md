@@ -1,8 +1,228 @@
-# Examining an author’s individual grammar
+# LambdaG for Authorship Verification
 
-[![DOI](https://zenodo.org/badge/1018618561.svg)](https://doi.org/10.5281/zenodo.15971102)
+Python implementation of the LambdaG method for authorship verification. This repository provides **two implementations**:
 
-This repository contains the abstract, a tutorial and the slides for the talk:
+1. **Simplified** (default): Fast vector-based similarity for practical use
+2. **Faithful** (--faithful): Paper-accurate implementation with n-gram language models
+
+## What is LambdaG?
+
+LambdaG is a forensic authorship verification method from the paper ["Grammar as a Behavioral Biometric: Using Cognitively Motivated Grammar Models for Authorship Verification"](https://arxiv.org/html/2403.08462v2) (2024).
+
+The method:
+1. Applies **POSnoise** preprocessing to remove content/topic and preserve style
+2. Uses **sentence-level tokenization** for fine-grained analysis
+3. Builds **Grammar Models** (n-gram language models with Kneser-Ney smoothing)
+4. Computes **λG**: log likelihood ratio between candidate and reference models
+5. Optionally applies **calibration** via logistic regression
+
+## Two Implementations
+
+### Simplified Implementation (Default)
+
+**Purpose**: Fast, memory-efficient for large datasets
+
+**Method**:
+- Character n-grams (3-5) with HashingVectorizer
+- Cosine similarity between sparse vectors
+- Optional POSnoise preprocessing
+- Streaming-friendly
+
+**Use when**: You need speed and scalability
+
+### Faithful Implementation (--faithful)
+
+**Purpose**: Paper-accurate research implementation
+
+**Method**:
+- N-gram language models (order N=10)
+- Modified Kneser-Ney smoothing (discount D=0.75)
+- Reference model sampling (r=100 repetitions)
+- Log likelihood ratio computation (λG)
+- Logistic regression calibration (ΛG)
+
+**Use when**: You need reproducible research results matching the paper
+
+**Note**: Much slower (trains 100+ language models per query), requires more memory
+
+## Setup
+
+Install [uv](https://github.com/astral-sh/uv) if you don't have it:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Generate lockfile and sync environment:
+
+```bash
+make lock
+make sync
+```
+
+Download spaCy model for POSnoise:
+
+```bash
+uv run python -m spacy download en_core_web_sm
+```
+
+## Usage
+
+### Simplified Implementation (Fast)
+
+Train a model:
+
+```bash
+PYTHONPATH=. uv run python scripts/run_lambda_g.py fit \
+  --input data/demo/train.csv \
+  --model model.joblib \
+  --use-posnoise \
+  --sentence-level
+```
+
+Score verification claims:
+
+```bash
+PYTHONPATH=. uv run python scripts/run_lambda_g.py score \
+  --model model.joblib \
+  --input data/demo/claims.csv \
+  --output scored.csv
+```
+
+### Faithful Implementation (Paper-Accurate)
+
+Train a faithful model:
+
+```bash
+PYTHONPATH=. uv run python scripts/run_lambda_g.py fit \
+  --input data/demo/train.csv \
+  --model faithful_model.joblib \
+  --faithful \
+  --N 10 \
+  --r 100 \
+  --discount 0.75
+```
+
+Score with faithful model:
+
+```bash
+PYTHONPATH=. uv run python scripts/run_lambda_g.py score \
+  --model faithful_model.joblib \
+  --input data/demo/claims.csv \
+  --output scored_faithful.csv
+```
+
+**Faithful Options**:
+- `--N`: N-gram order (default 10, as per paper)
+- `--r`: Number of reference model repetitions (default 100)
+- `--s`: Sentences to sample per reference (default: all)
+- `--discount`: Kneser-Ney discount parameter (default 0.75)
+- `--use-calibration`: Apply calibration when scoring (requires training calibration first)
+
+### Run tests
+
+```bash
+make test
+```
+
+## Input Format
+
+**Training CSV** (`train.csv`):
+- Columns: `text`, `author`
+- One row per training document
+
+**Claims CSV** (`claims.csv`):
+- Columns: `text`, `claimed_author`
+- One row per verification claim
+
+**Output CSV** (`scored.csv`):
+- Original columns plus: `pred_author`, `pred_score`, `claimed_score`
+- Higher `claimed_score` → stronger evidence for claimed authorship
+
+## Implementation Details
+
+### Common Components
+
+**POSnoise Preprocessing** (both implementations)
+- Content words (NOUN, VERB, ADJ, ADV, PROPN, NUM) → POS tags
+- Function words preserved (preserves syntactic style)
+- Example: "The quick brown fox" → "The ADJ ADJ NOUN"
+
+**Sentence Tokenization** (both implementations)
+- Uses spaCy for robust sentence boundary detection
+- Each sentence processed independently
+
+### Simplified Implementation Details
+
+**Feature Extraction**
+- Character n-grams (3-5) with word boundaries
+- HashingVectorizer for memory efficiency (262,144 features)
+- No vocabulary storage required
+
+**Model Training**
+- Streaming aggregation per author (memory-efficient)
+- L2-normalized sparse centroids
+- Saved as joblib files
+
+**Scoring**
+- Cosine similarity between query and author centroids
+- Sentence-level averaging when enabled
+- Returns scores in range [-1, 1]
+
+### Faithful Implementation Details
+
+**N-gram Language Models**
+- Order N=10 (captures long-range dependencies)
+- Modified Kneser-Ney smoothing (Chen & Goodman 1996)
+- Fixed discount parameter D=0.75
+- Handles <BOS>, <EOS>, and <UNK> tokens
+
+**Reference Model Sampling** (Algorithm 1, lines 13-14)
+- Samples r=100 random subsets from reference corpus
+- Each reference model trained on s sentences (or all if s not specified)
+- Ensures robust population statistics
+
+**Lambda_G Computation** (Algorithm 1, lines 15-20)
+- For each token in context: λG(t|context) = (1/r) × Σ log(P(t|context; G_A) / P(t|context; G_j))
+- Aggregated over all tokens and sentences: λG(D_U) = ΣΣ λG(t|context)
+- Returns uncalibrated log likelihood ratio
+
+**Calibration** (optional)
+- Logistic regression on training Y/N cases
+- Converts λG (uncalibrated) to ΛG (calibrated LR)
+- Enables forensic-grade likelihood ratios
+
+### Performance Comparison
+
+| Metric | Simplified | Faithful |
+|--------|-----------|----------|
+| Training time (100 docs) | ~10 seconds | ~5-10 minutes |
+| Scoring time (1 doc) | ~0.1 seconds | ~10-30 seconds |
+| Memory usage | Low (streaming) | High (full corpus) |
+| Accuracy | Good | Best (paper-level) |
+| Use case | Production | Research |
+
+## Files
+
+```
+lambda_g/
+  __init__.py       - Package exports
+  model.py          - LambdaGModel class
+  posnoise.py       - POSnoise preprocessing
+scripts/
+  run_lambda_g.py   - CLI for fit/score
+tests/
+  test_lambda_g.py  - Unit tests
+data/demo/
+  train.csv         - Example training data
+  claims.csv        - Example claims
+```
+
+## References
+
+- Nini, A. (2023). *A Theory of Linguistic Individuality for Authorship Analysis*. Cambridge University Press.
+- Ishihara, S. (2021). "Score-Based Likelihood Ratios for Linguistic Text Evidence". *Forensic Science International*, 327.
+
 
 > Nini, A. ‘Examining an author’s individual grammar’. *Comparative Literature Goes Digital Workshop*, *Digital Humanities 2025*. Universidade Nova de Lisboa, Lisbon, Portugal. 14/07/2025.
 

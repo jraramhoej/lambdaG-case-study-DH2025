@@ -1,0 +1,11 @@
+text,author,claimed_author
+This is a short text by author A.,A,A
+Another short note by A with similar style.,A,A
+Completely different phrasing and words from B.,B,B
+B writes in other tones and different words.,B,B
+A writes with concise sentences and similar phrasing.,A,B
+C writes short clipped fragments and bullets.,C,C
+C has a distinct technical style and terse comments.,C,C
+Shared common phrasing that multiple authors might use.,D,D
+Another line by D using somewhat neutral wording.,D,C
+D uses repeated terms and a formulaic closing.,D,D
